@@ -1,9 +1,7 @@
 from collections import Counter
-from typing import Iterable, List, Literal, Tuple
+from collections.abc import Iterable
 
 from . import EindexError
-
-Aggregation = Literal["set", "min", "max", "sum", "mean", "std", "logsumexp"]
 
 forbidden_names = {
     "mask",
@@ -17,15 +15,8 @@ forbidden_names = {
     "mean",
 }
 
-# discouraged_names = {
-#     "class",
-#     "def",
-#     "if",
-#     "else",
-# }
 
-
-def _verify_axis_name(name: str, indexer=False) -> Tuple[bool, str]:
+def _verify_axis_name(name: str, indexer=False) -> tuple[bool, str]:
     if not str.isidentifier(name):
         return False, f"Axis name {name} is not a valid python identifier"
     if name[-1] == "_":
@@ -33,11 +24,10 @@ def _verify_axis_name(name: str, indexer=False) -> Tuple[bool, str]:
     if name[0] == "_" and not indexer:
         # indexers can start from underscore
         return False, f"Axis name {name} should should not start or end with underscore"
-    else:
-        return True, ""
+    return True, ""
 
 
-def _parse_space_separated_dimensions(dims: str) -> List[str]:
+def _parse_space_separated_dimensions(dims: str) -> list[str]:
     if "[" in dims:
         raise EindexError(
             f"Symbol [ was used in a part '{dims}', which does not contain indexers, only space-separated axes"
@@ -53,13 +43,13 @@ def _parse_space_separated_dimensions(dims: str) -> List[str]:
         if not is_valid:
             raise EindexError(reason)
     if len(set(axes_names)) != len(axes_names):
-        repeated_axes = [ax for ax, i in Counter(axes_names).items()]
+        repeated_axes = list(Counter(axes_names).keys())
         raise EindexError(f"Some axes were repeated: {repeated_axes}")
 
     return axes_names
 
 
-def _parse_comma_separated_dimensions(dims: str) -> List[str]:
+def _parse_comma_separated_dimensions(dims: str) -> list[str]:
     dims = dims.strip()
     if len(dims) == 0:
         return []
@@ -73,11 +63,11 @@ def _parse_comma_separated_dimensions(dims: str) -> List[str]:
     return axes_names
 
 
-def detect_duplicates(x: List[str]) -> List[str]:
+def detect_duplicates(x: list[str]) -> list[str]:
     return [name for name, count in Counter(x).items() if count > 1]
 
 
-def _parse_indexing_part(x: str, *, allow_duplicate_indexers: bool = False) -> Tuple[List[str], List[str]]:
+def _parse_indexing_part(x: str, *, allow_duplicate_indexers: bool = False) -> tuple[list[str], list[str]]:
     """
     Parses indexing part, e.g. '[ind_axis_1, ind_axis2] ind_other_axis1 ind_other_axis2'
     """
@@ -87,9 +77,8 @@ def _parse_indexing_part(x: str, *, allow_duplicate_indexers: bool = False) -> T
     composition_start = 0  # x.index("[")
     composition_end = x.index("]")
     indexing_axes_names = _parse_comma_separated_dimensions(x[composition_start + 1 : composition_end])
-    if not allow_duplicate_indexers:
-        if duplicates := detect_duplicates(indexing_axes_names):
-            raise EindexError(f"Axes {duplicates} present more than once in '{x}' ")
+    if not allow_duplicate_indexers and (duplicates := detect_duplicates(indexing_axes_names)):
+        raise EindexError(f"Axes {duplicates} present more than once in '{x}' ")
     indexer_other_axes_names = _parse_space_separated_dimensions(x[composition_end + 1 :])
     # did not check if there is an overlap between main and other axes
     return indexing_axes_names, indexer_other_axes_names
@@ -97,7 +86,7 @@ def _parse_indexing_part(x: str, *, allow_duplicate_indexers: bool = False) -> T
 
 # presence reflects which parts of expression a particular axis participates in
 # order is (in result, in array, in main indexing axes, in other indexing axes)
-Presence = Tuple[bool, bool, bool, bool]
+Presence = tuple[bool, bool, bool, bool]
 
 
 class ParsedPattern:
@@ -118,14 +107,14 @@ class ParsedPattern:
             if len(set(group)) != len(group):
                 raise EindexError(f"{group_name} pattern ({subpattern}) contains a duplicated axis in {pattern}")
 
-    def axis2presence(self) -> Iterable[Tuple[str, Presence]]:
+    def axis2presence(self) -> Iterable[tuple[str, Presence]]:
         all_axes = {
             *self.res_axes_names,
             *self.arr_axes_names,
             *self.ind_axes_names,
             *self.ind_other_axes_names,
         }
-        for axis in list(all_axes):
+        for axis in all_axes:
             presence: Presence = (
                 axis in self.res_axes_names,
                 axis in self.arr_axes_names,
@@ -134,9 +123,7 @@ class ParsedPattern:
             )
             if axis.startswith("_"):
                 # unused indexers (and only them) start with _underscore
-                if presence == (False, False, True, False):
-                    pass
-                else:
+                if presence != (False, False, True, False):
                     raise EindexError(
                         f"Axis {axis} in {self.pattern}: axes that start with underscore should appear only once in indexing"
                     )

@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "eindex"
 description = "A concept of multidimensional indexing for tensors"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 
 keywords = [
     'indexing',
@@ -36,9 +36,6 @@ torch = ["torch>=2.0"]
 
 [project.urls]
 Homepage = 'https://github.com/arogozhnikov/eindex'
-
-[tool.setuptools]
-packages = ['eindex']
 
 [tool.hatch.version]
 path = "eindex/__init__.py"

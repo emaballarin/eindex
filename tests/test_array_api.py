@@ -1,19 +1,22 @@
 from typing import TypeVar
 
-from eindex._core import CompositionDecomposition, zip2
-from eindex.array_api import _ArrayApiIXP, _einindex, argmax, argmin, argsort, gather
-
-from .utils import (
-    _enum_1d,
-    compose_index,
-    enumerate_indexer,
-    flatten,
-    generate_array,
-    generate_indexer,
-    pseudo_random_tensor,
-    range_of_shape,
-    to_flat_index,
-)
+from .utils import _enum_1d
+from .utils import compose_index
+from .utils import enumerate_indexer
+from .utils import flatten
+from .utils import generate_array
+from .utils import generate_indexer
+from .utils import pseudo_random_tensor
+from .utils import range_of_shape
+from .utils import to_flat_index
+from eindex._core import CompositionDecomposition
+from eindex._core import zip2
+from eindex.array_api import _ArrayApiIXP
+from eindex.array_api import _einindex
+from eindex.array_api import argmax
+from eindex.array_api import argmin
+from eindex.array_api import argsort
+from eindex.array_api import gather
 
 T = TypeVar("T")
 
@@ -22,7 +25,7 @@ T = TypeVar("T")
 
 
 def test_composition_and_decomposition():
-    import numpy.array_api as xp
+    import numpy as xp
 
     ixp = _ArrayApiIXP(xp)
 
@@ -59,7 +62,7 @@ def test_composition_and_decomposition():
 
 
 def test_simple_indexing():
-    import numpy.array_api as np
+    import numpy as np
 
     # simple 2d test
     arr = pseudo_random_tensor(np, [5, 7])
@@ -74,7 +77,7 @@ def test_simple_indexing():
 
 
 def test_multidimensional_indexing():
-    import numpy.array_api as xp
+    import numpy as xp
 
     ixp = _ArrayApiIXP(xp)
 
@@ -114,7 +117,7 @@ def test_multidimensional_indexing():
 
 
 def test_reverse_indexing():
-    import numpy.array_api as xp
+    import numpy as xp
 
     ixp = _ArrayApiIXP(xp)
 
@@ -155,7 +158,7 @@ def check_max_min(x, pattern: str):
 
 
 def test_argmax_straight():
-    import numpy.array_api as xp
+    import numpy as xp
 
     ixp = _ArrayApiIXP(xp)
 
@@ -173,7 +176,7 @@ def test_argmax_straight():
 
 
 def test_argmax_by_indexing():
-    import numpy.array_api as np
+    import numpy as np
 
     x = np.reshape(np.arange(3 * 4 * 5), (3, 4, 5))
     x[1, 2, 3] = 10000
@@ -204,7 +207,7 @@ def test_argmax_by_indexing():
 
 
 def test_argsort_against_numpy():
-    import numpy.array_api as np
+    import numpy as np
 
     x = np.reshape(np.arange(3 * 4 * 5), (3, 4, 5))
     x[1, 2, 3] = 1000
@@ -223,20 +226,11 @@ def test_argsort_against_numpy():
 
 
 def test_index():
-    import numpy.array_api as xp
+    import numpy as xp
 
     ixp = _ArrayApiIXP(xp)
 
-    sizes = dict(
-        a=2,
-        b=3,
-        c=5,
-        d=7,
-        e=2,
-        f=3,
-        g=4,
-        h=5,
-    )
+    sizes = {"a": 2, "b": 3, "c": 5, "d": 7, "e": 2, "f": 3, "g": 4, "h": 5}
 
     array = generate_array(xp, "a b c d", sizes=sizes)
     indexer = generate_indexer(xp, "[a, c] d f g", sizes=sizes)
@@ -260,17 +254,9 @@ def test_index():
 
 
 def test_gather():
-    import numpy.array_api as np
+    import numpy as np
 
-    sizes = dict(
-        a=2,
-        b=3,
-        c=5,
-        d=7,
-        i1=3,
-        i2=5,
-        r=3,
-    )
+    sizes = {"a": 2, "b": 3, "c": 5, "d": 7, "i1": 3, "i2": 5, "r": 3}
 
     final_pattern = "b c d"
     array_pattern = "b i1 i2 d r"
