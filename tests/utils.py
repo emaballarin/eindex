@@ -1,6 +1,4 @@
 from typing import Any
-from typing import Dict
-from typing import List
 
 from eindex._core import _index_to_list_array_api
 from eindex._core import _parse_indexing_part
@@ -11,7 +9,7 @@ from eindex._core import zip2
 Array = Any
 
 
-def pseudo_random_tensor(xp, shape: List[int]):
+def pseudo_random_tensor(xp, shape: list[int]):
     total_size = 1
     for x in shape:
         total_size *= x
@@ -20,7 +18,7 @@ def pseudo_random_tensor(xp, shape: List[int]):
     return xp.reshape(values, shape)
 
 
-def enumerate_indexer(ixp: IXP, indexer_pattern: str, indexer: Array, sizes: Dict[str, int]) -> Dict[str, Array]:
+def enumerate_indexer(ixp: IXP, indexer_pattern: str, indexer: Array, sizes: dict[str, int]) -> dict[str, Array]:
     """returns a dictionary with 1-dim arrays"""
     index_axes, index_other_axes = _parse_indexing_part(indexer_pattern)
     expected_shape = [indexer.shape[0]] + [sizes[axis] for axis in index_other_axes]
@@ -41,7 +39,7 @@ def enumerate_indexer(ixp: IXP, indexer_pattern: str, indexer: Array, sizes: Dic
     return result
 
 
-def to_flat_index(array_pattern: str, coordinates: Dict[str, Array], sizes: Dict[str, int]) -> Array:
+def to_flat_index(array_pattern: str, coordinates: dict[str, Array], sizes: dict[str, int]) -> Array:
     array_dims = _parse_space_separated_dimensions(array_pattern)
     result = 0
     for label in array_dims:
@@ -50,7 +48,7 @@ def to_flat_index(array_pattern: str, coordinates: Dict[str, Array], sizes: Dict
     return result
 
 
-def generate_indexer(xp, indexer_pattern: str, sizes: Dict[str, int]):
+def generate_indexer(xp, indexer_pattern: str, sizes: dict[str, int]):
     index_axes, index_other_axes = _parse_indexing_part(indexer_pattern)
 
     shape = [len(index_axes)] + [sizes[axis] for axis in index_other_axes]
@@ -61,7 +59,7 @@ def generate_indexer(xp, indexer_pattern: str, sizes: Dict[str, int]):
     return indexer
 
 
-def generate_array(xp, array_pattern: str, sizes: Dict[str, int]):
+def generate_array(xp, array_pattern: str, sizes: dict[str, int]):
     axes = _parse_space_separated_dimensions(array_pattern)
     shape = [sizes[axis] for axis in axes]
 

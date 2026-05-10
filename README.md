@@ -119,24 +119,24 @@ vector_shift = gather(vectors, xy_diff, 'i j head c, [i, j] i1 j1 i2 j2 -> i1 j1
 
 ## Implementation
 
-Repo provides two implementation:
+Repo provides four backends, all sharing a single backend-agnostic core:
 
-- array api standard. This implementation is based on a [standard](https://data-apis.org/array-api/latest/) that multiple frameworks pre-agreed to follow.
-  Implementation uses only API from standard, so all available operations support all frameworks that follow the standard.
+- **numpy** — full surface (`argmin/argmax/argsort`, `gather`, `scatter`, `gather_scatter`).
+  Great for testing things out and for non-DL workflows.
 
-    At some point this should become the one and the only implementation.
+- **array_api** — uses only the [array-API standard](https://data-apis.org/array-api/latest/),
+  so it works against any conforming namespace (numpy ≥ 2.0, cupy, array_api_strict, …).
+  Exposes the four spec-friendly ops (`argmin/argmax/argsort`, `gather`); `scatter`/`gather_scatter`
+  aren't part of the standard and live in the per-library backends.
 
-    Here is the catch: current support of array api standard is poor, that's why the second implementation exists
+- **torch** — full surface, jit/grad-safe. `gather` and `scatter` with `agg='sum'`/`'mean'`
+  give exact gradients; `'max'`/`'min'` use the standard subgradient.
 
-- numpy implementation
-
-    This independent implementation works right now.
-
-    Numpy implementation is great to test things out, and is handy for a number of non-DL applications as well.
+- **jax** — full surface, jit/grad/vmap/pmap-safe. Implemented over `arr.at[idx].add/.max/.min(...)`.
 
 ## Development Status
 
-API looks solid, but breaking changes are still possible, so lock the version in your projects (e.g. `eindex==0.1.0`)
+API looks solid, but breaking changes are still possible, so lock the version in your projects (e.g. `eindex==0.2.0`)
 
 ## Related projects
 

@@ -27,6 +27,7 @@ dependencies = [
 ]
 dynamic = ["version"]
 authors = [{ name = 'Alex Rogozhnikov' }]
+maintainers = [{ name = 'Emanuele Ballarin', email = 'emanuele@ballarin.cc' }]
 
 
 [project.optional-dependencies]
@@ -35,7 +36,8 @@ torch = ["torch>=2.0"]
 
 
 [project.urls]
-Homepage = 'https://github.com/arogozhnikov/eindex'
+Homepage = 'https://github.com/emaballarin/eindex'
+Upstream = 'https://github.com/arogozhnikov/eindex'
 
 [tool.hatch.version]
 path = "eindex/__init__.py"
