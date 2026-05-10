@@ -131,7 +131,7 @@ dmypy.json
 # pycharm/intelliJ
 .idea
 
-# notebooks 
+# notebooks
 test_notebooks
 
 # mac stuff
@@ -140,3 +140,7 @@ test_notebooks
 # Other
 .vscode
 .ruff_cache
+
+# Project-specific
+.claude/
+eindex_backend_plan.md

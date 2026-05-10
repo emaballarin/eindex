@@ -16,6 +16,7 @@ CUDA non-determinism:
     (matches the torch ecosystem default). To force determinism, set
     ``torch.use_deterministic_algorithms(True)`` and accept the slowdown.
 """
+
 from typing import Any
 from typing import Protocol
 from typing import TypeVar

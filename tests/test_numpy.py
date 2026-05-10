@@ -1,20 +1,28 @@
-from typing import Any, List, Tuple, TypeVar
+from typing import Any
+from typing import List
+from typing import Tuple
+from typing import TypeVar
 
 import numpy as np
 
-from eindex._core import CompositionDecomposition, zip2
-from eindex.numpy import _einindex, _numpy_ixp, argmax, argmin, argsort, gather, gather_scatter, scatter
-
-from .utils import (
-    _enum_1d,
-    compose_index,
-    enumerate_indexer,
-    flatten,
-    generate_array,
-    generate_indexer,
-    range_of_shape,
-    to_flat_index,
-)
+from .utils import _enum_1d
+from .utils import compose_index
+from .utils import enumerate_indexer
+from .utils import flatten
+from .utils import generate_array
+from .utils import generate_indexer
+from .utils import range_of_shape
+from .utils import to_flat_index
+from eindex._core import CompositionDecomposition
+from eindex._core import zip2
+from eindex.numpy import _einindex
+from eindex.numpy import _numpy_ixp
+from eindex.numpy import argmax
+from eindex.numpy import argmin
+from eindex.numpy import argsort
+from eindex.numpy import gather
+from eindex.numpy import gather_scatter
+from eindex.numpy import scatter
 
 T = TypeVar("T")
 

@@ -1,4 +1,7 @@
-from typing import Dict, List, Optional, Union
+from typing import Dict
+from typing import List
+from typing import Optional
+from typing import Union
 
 import numpy as np
 
@@ -26,17 +29,17 @@ class DemoData:
         self.worlds = [
             "Amber",
             "Beauxbatons",
-            "Emerald\u00A0City",
+            "Emerald\u00a0City",
             # 'Trantor',
             "Midgar",
             "Mycogen",
         ]
 
         self.places = [
-            "City\u00A0Center",
+            "City\u00a0Center",
             "Palace",
             "University",
-            "Forest\u00A0Camp",
+            "Forest\u00a0Camp",
             # 'Old\u00A0City',
         ]
 
@@ -79,13 +82,11 @@ class DemoData:
         self.travels = np.asarray([travels_world, travels_place])
 
         n_subscriptions = self.n_hero * self.n_year
-        self.subscriptions = np.asarray(
-            [
-                rng.randint(0, self.n_network, n_subscriptions),
-                rng.randint(0, self.n_hero, n_subscriptions),
-                rng.randint(0, self.n_year, n_subscriptions),
-            ]
-        )  # [network, hero, year] subscription
+        self.subscriptions = np.asarray([
+            rng.randint(0, self.n_network, n_subscriptions),
+            rng.randint(0, self.n_hero, n_subscriptions),
+            rng.randint(0, self.n_year, n_subscriptions),
+        ])  # [network, hero, year] subscription
 
     def _get_axis(self, axis_name: str, additional_axes: Dict[str, list]):
         # allow overriding if necessary
@@ -200,8 +201,8 @@ class DemoData:
         result_html = f"""
         <div style="
             display: inline-grid; 
-            grid-template-columns: [colname] minmax(150px, 200px) { ' 1fr '.join(f'[col{i}]' for i in range(len(elements_collabels) + 1) )} ;
-            grid-template-rows:    [rowname]  35px { ' 1fr '.join(f'[row{i}]' for i in range(len(elements_rowlabels) + 1) )} ;
+            grid-template-columns: [colname] minmax(150px, 200px) {" 1fr ".join(f"[col{i}]" for i in range(len(elements_collabels) + 1))} ;
+            grid-template-rows:    [rowname]  35px {" 1fr ".join(f"[row{i}]" for i in range(len(elements_rowlabels) + 1))} ;
             column-gap: 10px;
             row-gap: 5px;
             "

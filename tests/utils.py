@@ -1,6 +1,12 @@
-from typing import Any, Dict, List
+from typing import Any
+from typing import Dict
+from typing import List
 
-from eindex._core import IXP, _index_to_list_array_api, _parse_indexing_part, _parse_space_separated_dimensions, zip2
+from eindex._core import _index_to_list_array_api
+from eindex._core import _parse_indexing_part
+from eindex._core import _parse_space_separated_dimensions
+from eindex._core import IXP
+from eindex._core import zip2
 
 Array = Any
 
