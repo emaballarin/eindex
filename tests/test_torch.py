@@ -1,22 +1,28 @@
+import unittest
 from typing import TypeVar
+
 import numpy as np
 import torch
-import unittest
 
-from eindex._core import CompositionDecomposition, zip2
-from eindex.torch import _TorchIXP, _einindex, argmax, argmin, argsort, gather
-
-from .utils import (
-    _enum_1d,
-    compose_index,
-    enumerate_indexer,
-    flatten,
-    generate_array,
-    generate_indexer,
-    pseudo_random_tensor,
-    range_of_shape,
-    to_flat_index,
-)
+from .utils import _enum_1d
+from .utils import compose_index
+from .utils import enumerate_indexer
+from .utils import flatten
+from .utils import generate_array
+from .utils import generate_indexer
+from .utils import pseudo_random_tensor
+from .utils import range_of_shape
+from .utils import to_flat_index
+from eindex._core import CompositionDecomposition
+from eindex._core import zip2
+from eindex.torch import _einindex
+from eindex.torch import _TorchIXP
+from eindex.torch import argmax
+from eindex.torch import argmin
+from eindex.torch import argsort
+from eindex.torch import gather
+from eindex.torch import gather_scatter
+from eindex.torch import scatter
 
 T = TypeVar("T")
 
@@ -170,7 +176,6 @@ def test_argmax_straight():
 
 
 def test_argmax_by_indexing():
-    ixp = _TorchIXP()
     xp = _TorchIXP().xp
 
     x = xp.reshape(xp.arange(3 * 4 * 5), (3, 4, 5))
@@ -202,7 +207,6 @@ def test_argmax_by_indexing():
 
 
 def test_argsort_against_numpy():
-    ixp = _TorchIXP()
     xp = _TorchIXP().xp
 
     x = xp.reshape(xp.arange(3 * 4 * 5), (3, 4, 5))
@@ -225,16 +229,7 @@ def test_index():
     ixp = _TorchIXP()
     xp = _TorchIXP().xp
 
-    sizes = dict(
-        a=2,
-        b=3,
-        c=5,
-        d=7,
-        e=2,
-        f=3,
-        g=4,
-        h=5,
-    )
+    sizes = {"a": 2, "b": 3, "c": 5, "d": 7, "e": 2, "f": 3, "g": 4, "h": 5}
 
     array = generate_array(xp, "a b c d", sizes=sizes)
     indexer = generate_indexer(xp, "[a, c] d f g", sizes=sizes)
@@ -261,15 +256,7 @@ def test_gather():
     ixp = _TorchIXP()
     xp = _TorchIXP().xp
 
-    sizes = dict(
-        a=2,
-        b=3,
-        c=5,
-        d=7,
-        i1=3,
-        i2=5,
-        r=3,
-    )
+    sizes = {"a": 2, "b": 3, "c": 5, "d": 7, "i1": 3, "i2": 5, "r": 3}
 
     final_pattern = "b c d"
     array_pattern = "b i1 i2 d r"
@@ -324,6 +311,7 @@ def test_gather():
     ratio = result_mean / result__sum
     assert xp.min(ratio) * 0.99 < xp.max(ratio) < xp.min(ratio) * 1.01
 
+
 class TestTorchXP(unittest.TestCase):
     """Basic tests for the TorchIXP implementation since we're using it in the above test cases."""
 
@@ -332,10 +320,10 @@ class TestTorchXP(unittest.TestCase):
         # Set random seed for reproducibility
         np.random.seed(42)
         torch.manual_seed(42)
-        
+
     def _to_numpy(self, tensor):
         return tensor.cpu().numpy()
-    
+
     def assertArrayEqual(self, torch_result, numpy_result):
         if isinstance(torch_result, torch.Tensor):
             torch_result = self._to_numpy(torch_result)
@@ -344,7 +332,7 @@ class TestTorchXP(unittest.TestCase):
     def test_reshape(self):
         x = torch.randn(2, 3, 4)
         x_np = self._to_numpy(x)
-        
+
         shapes = [(24,), (6, 4), (2, 3, 4), (2, -1)]
         for shape in shapes:
             torch_result = self.xp.reshape(x, shape)
@@ -355,7 +343,7 @@ class TestTorchXP(unittest.TestCase):
         shapes = [(2, 3), (4,), (2, 3, 4)]
         values = [0.0, 1.0, -1.0, np.inf]
         dtypes = [torch.float32, torch.int64]
-        
+
         for shape in shapes:
             for value in values:
                 for dtype in dtypes:
@@ -368,7 +356,7 @@ class TestTorchXP(unittest.TestCase):
     def test_permute(self):
         x = torch.randn(2, 3, 4)
         x_np = self._to_numpy(x)
-        
+
         permutations = [(0, 2, 1), (2, 1, 0), (1, 0, 2)]
         for perm in permutations:
             torch_result = self.xp.permute(x, perm)
@@ -388,7 +376,7 @@ class TestTorchXP(unittest.TestCase):
             torch.tensor([[True, True], [True, True]]),
             torch.tensor([[True, False], [True, True]]),
         ]
-        
+
         for x in test_cases:
             torch_result = self.xp.all(x)
             numpy_result = np.all(self._to_numpy(x))
@@ -397,7 +385,7 @@ class TestTorchXP(unittest.TestCase):
     def test_broadcast_to(self):
         x = torch.randn(3, 1)
         x_np = self._to_numpy(x)
-        
+
         shapes = [(3, 4), (3, 5), (2, 3, 4)]
         for shape in shapes:
             try:
@@ -405,14 +393,13 @@ class TestTorchXP(unittest.TestCase):
                 numpy_result = np.broadcast_to(x_np, shape)
                 self.assertArrayEqual(torch_result, numpy_result)
             except (RuntimeError, ValueError):
-                # Ensure both raise errors for invalid broadcasts
-                with self.assertRaises(Exception):
+                with self.assertRaises(ValueError):
                     np.broadcast_to(x_np, shape)
 
     def test_stack(self):
         arrays = [torch.randn(2, 3) for _ in range(4)]
         arrays_np = [self._to_numpy(arr) for arr in arrays]
-        
+
         for axis in range(3):
             torch_result = self.xp.stack(arrays, axis=axis)
             numpy_result = np.stack(arrays_np, axis=axis)
@@ -421,13 +408,13 @@ class TestTorchXP(unittest.TestCase):
     def test_argmax_argmin(self):
         x = torch.randn(3, 4, 5)
         x_np = self._to_numpy(x)
-        
+
         # Test with different axis values
         for axis in [None, 0, 1, 2]:
             torch_max = self.xp.argmax(x, axis=axis)
             numpy_max = np.argmax(x_np, axis=axis)
             self.assertArrayEqual(torch_max, numpy_max)
-            
+
             torch_min = self.xp.argmin(x, axis=axis)
             numpy_min = np.argmin(x_np, axis=axis)
             self.assertArrayEqual(torch_min, numpy_min)
@@ -435,7 +422,7 @@ class TestTorchXP(unittest.TestCase):
     def test_argsort(self):
         x = torch.randn(3, 4, 5)
         x_np = self._to_numpy(x)
-        
+
         for axis in [None, 0, 1, 2]:
             torch_result = self.xp.argsort(x, axis=axis)
             numpy_result = np.argsort(x_np, axis=axis)
@@ -445,7 +432,7 @@ class TestTorchXP(unittest.TestCase):
     def test_sort(self):
         x = torch.randn(3, 4, 5)
         x_np = self._to_numpy(x)
-        
+
         for axis in [-1, 0, 1, 2]:
             torch_result = self.xp.sort(x, axis=axis)
             numpy_result = np.sort(x_np, axis=axis)
@@ -454,13 +441,13 @@ class TestTorchXP(unittest.TestCase):
     def test_sum_mean(self):
         x = torch.randn(3, 4, 5)
         x_np = self._to_numpy(x)
-        
+
         # Test with different axis values and None
         for axis in [None, 0, 1, 2]:
             torch_sum = self.xp.sum(x, axis=axis)
             numpy_sum = np.sum(x_np, axis=axis)
             self.assertArrayEqual(torch_sum, numpy_sum)
-            
+
             torch_mean = self.xp.mean(x, axis=axis)
             numpy_mean = np.mean(x_np, axis=axis)
             self.assertArrayEqual(torch_mean, numpy_mean)
@@ -468,26 +455,27 @@ class TestTorchXP(unittest.TestCase):
     def test_max_min(self):
         x = torch.randn(3, 4, 5)
         x_np = self._to_numpy(x)
-        
+
         # Test single axis
         for axis in [None, 0, 1, 2]:
             torch_max = self.xp.max(x, axis=axis)
             numpy_max = np.max(x_np, axis=axis)
             self.assertArrayEqual(torch_max, numpy_max)
-            
+
             torch_min = self.xp.min(x, axis=axis)
             numpy_min = np.min(x_np, axis=axis)
             self.assertArrayEqual(torch_min, numpy_min)
-        
+
         # Test multiple axes
         for axes in [(0, 1), (1, 2), (0, 2)]:
             torch_max = self.xp.max(x, axis=axes)
             numpy_max = np.max(x_np, axis=axes)
             self.assertArrayEqual(torch_max, numpy_max)
-            
+
             torch_min = self.xp.min(x, axis=axes)
             numpy_min = np.min(x_np, axis=axes)
             self.assertArrayEqual(torch_min, numpy_min)
+
 
 def torch_to_numpy_dtype(torch_dtype):
     """Helper function to convert torch dtype to numpy dtype"""
@@ -499,3 +487,165 @@ def torch_to_numpy_dtype(torch_dtype):
         return np.int64
     # Add more dtype conversions as needed
     raise ValueError(f"Unsupported dtype: {torch_dtype}")
+
+
+def _list_aggname_aggfunc_default_value():
+    return [
+        ("sum", lambda a, b: a + b, 0.0),
+        ("min", min, float("inf")),
+        ("max", max, float("-inf")),
+    ]
+
+
+def test_scatter():
+    ixp = _TorchIXP()
+    xp = ixp.xp
+
+    sizes = {"b": 3, "c": 5, "d": 7, "e": 2, "f": 3, "g": 4, "h": 5}
+
+    array_pattern = "b c d"
+    index_pattern = "[f, h] c b e"
+    final_pattern = "b f h d e"
+    full_pattern = f"{array_pattern}, {index_pattern} -> {final_pattern}"
+    array = generate_array(xp, array_pattern=array_pattern, sizes=sizes)
+    indexer = generate_indexer(xp, index_pattern, sizes=sizes)
+    result = scatter(array, indexer, full_pattern, f=sizes["f"], h=sizes["h"])
+    indexer_as_dict = enumerate_indexer(ixp, index_pattern, indexer=indexer, sizes=sizes)
+
+    array_flat = flatten(xp, array)
+    result_flat = flatten(xp, result).clone()
+
+    for d in range(sizes["d"]):
+        flat_index_array = to_flat_index(array_pattern, {**indexer_as_dict, "d": d}, sizes=sizes)
+        flat_index_final = to_flat_index(final_pattern, {**indexer_as_dict, "d": d}, sizes=sizes)
+
+        for ia, ir in zip2(flat_index_array, flat_index_final):
+            result_flat[ir] -= array_flat[ia]
+
+    assert xp.max(xp.astype(result_flat, xp.int64).abs()) == 0
+
+    # check different aggregations against a manual reference. We run the
+    # aggregation loop in float64 to avoid the int <-> ±inf cast asymmetry
+    # between torch (strict, errors) and numpy (silent, casts to int extreme).
+    array_float = xp.astype(array, xp.float64)
+    array_flat_float = flatten(xp, array_float)
+    for agg_name, agg_func, default_value in _list_aggname_aggfunc_default_value():
+        result_scatter = scatter(array_float, indexer, full_pattern, agg=agg_name, f=sizes["f"], h=sizes["h"])
+        result_scatter = xp.reshape(result_scatter, (-1,))
+        result_ref = xp.full(
+            shape=tuple(sizes[d] for d in final_pattern.split()),
+            fill_value=default_value,
+            dtype=torch.float64,
+        )
+        result_ref = xp.reshape(result_ref, (-1,)).clone()
+        for d in range(sizes["d"]):
+            flat_index_array = to_flat_index(array_pattern, {**indexer_as_dict, "d": d}, sizes=sizes)
+            flat_index_final = to_flat_index(final_pattern, {**indexer_as_dict, "d": d}, sizes=sizes)
+
+            for ia, ir in zip2(flat_index_array, flat_index_final):
+                result_ref[ir] = agg_func(float(array_flat_float[ia]), float(result_ref[ir]))
+        assert torch.allclose(result_ref, result_scatter, equal_nan=True)
+
+    # mean on a constant tensor — every reached bucket = 3.0; unreached = NaN.
+    arr_const = array_float * 0 + 3.0
+    arr_ones = array_float * 0 + 1.0
+    result_mean = scatter(arr_const, indexer, full_pattern, agg="mean", f=sizes["f"], h=sizes["h"])
+    result_sum = scatter(arr_ones, indexer, full_pattern, agg="sum", f=sizes["f"], h=sizes["h"])
+    assert torch.allclose(result_mean[result_sum > 0], torch.tensor(3.0, dtype=result_mean.dtype))
+    assert torch.all(torch.isnan(result_mean[result_sum == 0]))
+
+
+def test_gather_scatter():
+    ixp = _TorchIXP()
+    xp = ixp.xp
+
+    sizes = {"b": 3, "c": 5, "r": 3, "f": 4, "i1": 2, "i2": 3, "i3": 5}
+
+    final_pattern = "b c i1 i3 f"
+    array_pattern = "b c i1 i2"
+    index_pattern = "[i1, i2, i3] b f r"
+    full_pattern = f"{array_pattern}, {index_pattern} -> {final_pattern}"
+    array = generate_array(xp, array_pattern=array_pattern, sizes=sizes)
+    indexer = generate_indexer(xp, index_pattern, sizes=sizes)
+    result = gather_scatter(array, indexer, full_pattern, i3=sizes["i3"])
+    indexer_as_dict = enumerate_indexer(ixp, index_pattern, indexer=indexer, sizes=sizes)
+
+    array_flat = flatten(xp, array)
+    result_flat = flatten(xp, result).clone()
+
+    for c in range(sizes["c"]):
+        flat_index_array = to_flat_index(array_pattern, {**indexer_as_dict, "c": c}, sizes=sizes)
+        flat_index_final = to_flat_index(final_pattern, {**indexer_as_dict, "c": c}, sizes=sizes)
+
+        for ia, ir in zip2(flat_index_array, flat_index_final):
+            result_flat[ir] -= array_flat[ia]
+
+    assert xp.max(xp.astype(result_flat, xp.int64).abs()) == 0
+
+    array_float = xp.astype(array, xp.float64)
+    array_flat_float = flatten(xp, array_float)
+    for agg_name, agg_func, default_value in _list_aggname_aggfunc_default_value():
+        result_gst = gather_scatter(array_float, indexer, full_pattern, agg=agg_name, i3=sizes["i3"])
+        result_gst = xp.reshape(result_gst, (-1,))
+        result_ref = xp.full(
+            shape=tuple(sizes[d] for d in final_pattern.split()),
+            fill_value=default_value,
+            dtype=torch.float64,
+        )
+        result_ref = xp.reshape(result_ref, (-1,)).clone()
+        for c in range(sizes["c"]):
+            flat_index_array = to_flat_index(array_pattern, {**indexer_as_dict, "c": c}, sizes=sizes)
+            flat_index_final = to_flat_index(final_pattern, {**indexer_as_dict, "c": c}, sizes=sizes)
+
+            for ia, ir in zip2(flat_index_array, flat_index_final):
+                result_ref[ir] = agg_func(float(array_flat_float[ia]), float(result_ref[ir]))
+        assert torch.allclose(result_ref, result_gst, equal_nan=True)
+
+    # mean on a constant — reached buckets equal the constant, others are NaN.
+    arr_const = array_float * 0 + 3.0
+    arr_ones = array_float * 0 + 1.0
+    result_mean = gather_scatter(arr_const, indexer, full_pattern, agg="mean", i3=sizes["i3"])
+    result_sum = gather_scatter(arr_ones, indexer, full_pattern, agg="sum", i3=sizes["i3"])
+    assert torch.allclose(result_mean[result_sum > 0], torch.tensor(3.0, dtype=result_mean.dtype))
+    assert torch.all(torch.isnan(result_mean[result_sum == 0]))
+
+
+def test_scatter_grad():
+    """Backprop through scatter (sum aggregation) is exact."""
+    sizes = {"b": 2, "c": 3, "d": 4, "f": 3, "h": 5, "e": 2}
+    array_pattern = "b c d"
+    index_pattern = "[f, h] c b e"
+    final_pattern = "b f h d e"
+    full_pattern = f"{array_pattern}, {index_pattern} -> {final_pattern}"
+
+    ixp = _TorchIXP()
+    xp = ixp.xp
+    array = xp.astype(generate_array(xp, array_pattern=array_pattern, sizes=sizes), torch.float32).clone()
+    array.requires_grad_(True)
+    indexer = generate_indexer(xp, index_pattern, sizes=sizes)
+
+    out = scatter(array, indexer, full_pattern, agg="sum", f=sizes["f"], h=sizes["h"])
+    out.sum().backward()
+    assert array.grad is not None
+    assert array.grad.shape == array.shape
+    assert torch.all(torch.isfinite(array.grad))
+    # scatter(arr).sum() == arr.sum() * (#scatter destinations per source) >= arr.numel(),
+    # so every input contributes — gradient should be strictly positive.
+    assert torch.all(array.grad > 0)
+
+
+@unittest.skipUnless(torch.cuda.is_available(), "CUDA not available")
+def test_scatter_cuda():
+    sizes = {"b": 3, "c": 5, "d": 7, "e": 2, "f": 3, "h": 5}
+    array_pattern = "b c d"
+    index_pattern = "[f, h] c b e"
+    final_pattern = "b f h d e"
+    full_pattern = f"{array_pattern}, {index_pattern} -> {final_pattern}"
+
+    ixp = _TorchIXP()
+    xp = ixp.xp
+    array_cpu = generate_array(xp, array_pattern=array_pattern, sizes=sizes)
+    indexer_cpu = generate_indexer(xp, index_pattern, sizes=sizes)
+    cpu = scatter(array_cpu, indexer_cpu, full_pattern, agg="sum", f=sizes["f"], h=sizes["h"])
+    cuda = scatter(array_cpu.cuda(), indexer_cpu.cuda(), full_pattern, agg="sum", f=sizes["f"], h=sizes["h"])
+    assert torch.all(cuda.cpu() == cpu)
