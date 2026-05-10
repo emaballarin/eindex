@@ -29,6 +29,11 @@ dynamic = ["version"]
 authors = [{ name = 'Alex Rogozhnikov' }]
 
 
+[project.optional-dependencies]
+jax = ["jax>=0.10.0"]
+torch = ["torch>=2.0"]
+
+
 [project.urls]
 Homepage = 'https://github.com/arogozhnikov/eindex'
 

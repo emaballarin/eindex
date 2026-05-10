@@ -1,0 +1,482 @@
+import unittest
+from typing import TypeVar
+
+import jax
+import jax.numpy as jnp
+import numpy as np
+
+from .utils import _enum_1d
+from .utils import compose_index
+from .utils import enumerate_indexer
+from .utils import flatten
+from .utils import generate_array
+from .utils import generate_indexer
+from .utils import pseudo_random_tensor
+from .utils import range_of_shape
+from .utils import to_flat_index
+from eindex._core import CompositionDecomposition
+from eindex._core import zip2
+from eindex.jax import _einindex
+from eindex.jax import _JaxIXP
+from eindex.jax import argmax
+from eindex.jax import argmin
+from eindex.jax import argsort
+from eindex.jax import gather
+
+T = TypeVar("T")
+
+
+def _generate_indexer_jax(indexer_pattern: str, sizes):
+    """Build the indexer via numpy (which supports in-place writes), then
+    convert to jax.numpy so the test code can run unchanged on top of it.
+    The reference utility ``generate_indexer`` performs ``arr[i, ...] = ...``
+    which JAX rejects (immutable arrays)."""
+    return jnp.asarray(generate_indexer(np, indexer_pattern, sizes))
+
+
+def _generate_array_jax(array_pattern: str, sizes):
+    return jnp.asarray(generate_array(np, array_pattern=array_pattern, sizes=sizes))
+
+
+def test_composition_and_decomposition():
+    ixp = _JaxIXP()
+    xp = ixp.xp
+
+    x = range_of_shape(2, 3, 5, 7, xp=xp)
+    comp = CompositionDecomposition(
+        decomposed_shape=["a", "b", "c", "d"],
+        composed_shape=[["a", "b"], ["c", "d"]],
+    )
+    x_composed = comp.compose_ixp(ixp, x, known_axes_lengths={})
+    assert x_composed.shape == (2 * 3, 5 * 7)
+    assert xp.all(x_composed == xp.reshape(x, (2 * 3, 5 * 7)))
+
+    y = CompositionDecomposition(
+        decomposed_shape=["a", "b", "c", "d"],
+        composed_shape=[["a", "b"], [], ["c", "d"], []],
+    ).compose_ixp(ixp, x, {})
+    assert y.shape == (2 * 3, 1, 5 * 7, 1)
+    assert xp.all(xp.reshape(x, (-1,)) == xp.reshape(y, (-1,)))
+
+    comp = CompositionDecomposition(
+        decomposed_shape=["a", "b", "e", "c", "d"],
+        composed_shape=[["e", "c"], ["b"], ["a", "d"]],
+    )
+    x = range_of_shape(2, 3, 5, 7, 3, xp=xp)
+
+    axes = {}
+    y = comp.compose_ixp(ixp, x, axes)
+    assert y.shape == (5 * 7, 3, 2 * 3)
+    y_manual = xp.reshape(xp.permute(x, (2, 3, 1, 0, 4)), y.shape)
+
+    assert xp.all(y == y_manual)
+    x2 = comp.decompose_ixp(ixp, y, axes)
+    assert xp.all(x == x2)
+
+
+def test_simple_indexing():
+    ixp = _JaxIXP()
+    xp = ixp.xp
+
+    arr = pseudo_random_tensor(xp, [5, 7])
+    ind = xp.arange(7) % 5
+    x = _einindex(arr, [ind], "i j, [i] j -> j")
+    for j, i in _enum_1d(ind):
+        assert arr[i, j] == x[j]
+
+    y = _einindex(xp.permute(arr, (1, 0)), [ind], "j i, [i] j -> j")
+    for j, i in _enum_1d(ind):
+        assert arr[i, j] == y[j]
+
+
+def test_multidimensional_indexing():
+    ixp = _JaxIXP()
+    xp = ixp.xp
+
+    B, H, W, C, T = 2, 3, 5, 7, 11
+    hindices_bt = pseudo_random_tensor(xp, [B, T]) % H
+    windices_bt = pseudo_random_tensor(xp, [B, T]) % W
+    _t = hindices_bt
+
+    embedding_bhwc = (
+        0
+        + ixp.arange_at_position(4, 0, B, _t) * 1000
+        + ixp.arange_at_position(4, 1, H, _t) * 100
+        + ixp.arange_at_position(4, 2, W, _t) * 10
+        + ixp.arange_at_position(4, 3, C, _t) * 1
+    )
+
+    result = _einindex(embedding_bhwc, [hindices_bt, windices_bt], "b H W c, [H, W] b t -> c t b")
+    hw_indices_bt = xp.stack([hindices_bt, windices_bt])
+    result2 = _einindex(embedding_bhwc, hw_indices_bt, "b H W c, [H, W] b t -> c t b")
+    assert xp.all(result == result2)
+
+    # check vs manual element computation. JAX arrays are immutable, so we
+    # accumulate via .at[...].set(...) instead of in-place index assignment.
+    result_manual = jnp.zeros_like(result)
+    for b in range(B):
+        for t in range(T):
+            for c in range(C):
+                h = int(hindices_bt[b, t])
+                w = int(windices_bt[b, t])
+                result_manual = result_manual.at[c, t, b].set(int(embedding_bhwc[b, h, w, c]))
+
+    assert xp.all(result == result_manual)
+
+
+def test_reverse_indexing():
+    ixp = _JaxIXP()
+    xp = ixp.xp
+
+    C, T, B = 2, 3, 5
+    G = 4
+    H = 7
+    W = 9
+
+    t_indices_gbhw = xp.reshape(xp.arange(G * B * H * W), (G, B, H, W)) % T
+    _t = t_indices_gbhw
+
+    arr_gtbc = (
+        0
+        + ixp.arange_at_position(4, 0, G, _t) * 1000
+        + ixp.arange_at_position(4, 1, T, _t) * 100
+        + ixp.arange_at_position(4, 2, B, _t) * 10
+        + ixp.arange_at_position(4, 3, C, _t) * 1
+    )
+
+    result = _einindex(arr_gtbc, [t_indices_gbhw], "g t b c, [t] g b h w -> g b c h w")
+
+    result_manual = jnp.zeros_like(result)
+    for g in range(G):
+        for b in range(B):
+            for c in range(C):
+                for h in range(H):
+                    for w in range(W):
+                        t = int(t_indices_gbhw[g, b, h, w])
+                        result_manual = result_manual.at[g, b, c, h, w].set(int(arr_gtbc[g, t, b, c]))
+
+    assert xp.all(result == result_manual)
+
+
+def check_max_min(x, pattern: str):
+    xp = _JaxIXP().xp
+    assert xp.all(argmax(x, pattern) == argmin(-x, pattern))
+
+
+def test_argmax_straight():
+    ixp = _JaxIXP()
+    xp = _JaxIXP().xp
+
+    A, B, C, D = 2, 3, 5, 7
+    x = pseudo_random_tensor(xp, [A, B, C, D])
+    # set one maximum for every B, so argmax is unambiguous
+    for b in range(B):
+        x = x.at[1, b, b + 1, b + 2].set(2000 + b)
+    [a, b, c, d] = argmax(x, "a b c d -> [a, b, c, d]")
+    assert x[a, b, c, d] == xp.max(x)
+    cad = argmax(x, "a b c d -> [c, a, d] b")
+    comp = CompositionDecomposition(composed_shape=[["c", "a", "d"], ["b"]], decomposed_shape=["a", "b", "c", "d"])
+    reference = xp.argmax(comp.compose_ixp(ixp, x, {}), axis=0)
+    assert xp.all(reference == compose_index(cad, [C, A, D]))
+
+
+def test_argmax_by_indexing():
+    xp = _JaxIXP().xp
+
+    x = xp.reshape(xp.arange(3 * 4 * 5), (3, 4, 5))
+    x = x.at[1, 2, 3].set(10000)
+    reference = xp.argmax(x, axis=0)
+
+    assert xp.all(argmax(x, "i j k -> [i] j k")[0, ...] == reference)
+    assert xp.all(argmax(x, "i j k -> [i] k j")[0, ...] == reference.T)
+
+    ind = argmax(x, "i j k -> [i] j k")
+    assert xp.all(_einindex(x, ind, "i j k, [i] j k -> j k") == xp.max(x, axis=0))
+
+    ind = argmax(x, "i j k -> [i, j] k")
+    assert xp.all(_einindex(x, ind, "i j k, [i, j] k -> k") == xp.max(x, axis=(0, 1)))
+
+    ind = argmax(x, "i j k -> [j, i] k")
+    assert xp.all(_einindex(x, ind, "i j k, [j, i] k -> k") == xp.max(x, axis=(0, 1)))
+
+    ind = argmax(x, "i j k -> [i, k] j")
+    assert xp.all(_einindex(x, ind, "i j k, [i, k] j -> j") == xp.max(x, axis=(0, 2)))
+
+    ind = argmax(x, "i j k -> [k, i, j]")
+    assert xp.all(_einindex(x, ind, "i j k, [k, i, j] -> ") == xp.max(x))
+
+    check_max_min(x, "i j k -> [k, i, j]")
+    check_max_min(x, "i j k -> [i, j] k")
+    check_max_min(x, "i j k -> [j, i] k")
+    check_max_min(x, "i j k -> [j] k i")
+
+
+def test_argsort_against_numpy():
+    xp = _JaxIXP().xp
+
+    x = xp.reshape(xp.arange(3 * 4 * 5), (3, 4, 5))
+    x = x.at[1, 2, 3].set(1000)
+
+    assert xp.all(argsort(x, "i j k -> [i] order j k")[0, ...] == xp.argsort(x, axis=0))
+    right = xp.permute_dims(xp.argsort(x, axis=0), (2, 1, 0))
+    assert xp.all(argsort(x, "i j k -> [i] k j order")[0, ...] == right)
+
+    ind = argsort(x, "i j k -> [k, i, j] order")
+    assert xp.all(_einindex(x, ind, "i j k, [k, i, j] order -> order") == xp.sort(xp.reshape(x, (-1,))))
+
+    ind = argsort(x, "i j k -> [k, i] order j")
+    reference = xp.permute_dims(x, (0, 2, 1))
+    reference = xp.reshape(reference, (-1, reference.shape[-1]))
+    assert xp.all(_einindex(x, ind, "i j k, [k, i] order j -> order j") == xp.sort(reference, axis=0))
+
+
+def test_index():
+    ixp = _JaxIXP()
+    xp = ixp.xp
+
+    sizes = {"a": 2, "b": 3, "c": 5, "d": 7, "e": 2, "f": 3, "g": 4, "h": 5}
+
+    array = _generate_array_jax("a b c d", sizes=sizes)
+    indexer = _generate_indexer_jax("[a, c] d f g", sizes=sizes)
+    result_einindex = _einindex(array, indexer, "a b c d, [a, c] d f g -> g f d b")
+    result = gather(array, indexer, "a b c d, [a, c] d f g -> g f d b")
+    indexer_as_dict = enumerate_indexer(ixp, "[a, c] d f g", indexer=indexer, sizes=sizes)
+
+    for b in range(sizes["b"]):
+        flat_index_arr = to_flat_index("a b c d", {**indexer_as_dict, "b": b}, sizes=sizes)
+        flat_index_result = to_flat_index("g f d b", {**indexer_as_dict, "b": b}, sizes=sizes)
+
+        array_flat = flatten(xp, array)
+        result_flat = flatten(xp, result)
+
+        for i, j in zip2(flat_index_arr, flat_index_result):
+            assert array_flat[i] == result_flat[j], ("failed", i, j)
+
+    assert xp.all(result_einindex == result), (result_einindex, result)
+
+
+def test_gather():
+    ixp = _JaxIXP()
+    xp = ixp.xp
+
+    sizes = {"a": 2, "b": 3, "c": 5, "d": 7, "i1": 3, "i2": 5, "r": 3}
+
+    final_pattern = "b c d"
+    array_pattern = "b i1 i2 d r"
+    index_pattern = "[i1, i2] c b a r"
+    full_pattern = f"{array_pattern}, {index_pattern} -> {final_pattern}"
+    array = _generate_array_jax(array_pattern=array_pattern, sizes=sizes)
+    indexer = _generate_indexer_jax(index_pattern, sizes=sizes)
+    result_gather = gather(array, indexer, full_pattern, agg="sum")
+
+    indexer_as_dict = enumerate_indexer(ixp, index_pattern, indexer=indexer, sizes=sizes)
+
+    array_flat = flatten(xp, array)
+    result_flat = flatten(xp, result_gather)
+
+    for d in range(sizes["d"]):
+        flat_index_array = to_flat_index(array_pattern, {**indexer_as_dict, "d": d}, sizes=sizes)
+        flat_index_final = to_flat_index(final_pattern, {**indexer_as_dict, "d": d}, sizes=sizes)
+
+        for ia, ir in zip2(flat_index_array, flat_index_final):
+            result_flat = result_flat.at[ir].add(-array_flat[ia])
+
+    assert xp.max(abs(result_flat)) == 0
+
+    # checking different aggregations
+    array_flat_float = xp.astype(array_flat, xp.float64)
+
+    for agg_name, agg_func, default_value in [
+        ("sum", lambda a, b: a + b, 0.0),
+        ("min", min, jnp.inf),
+        ("max", max, -jnp.inf),
+    ]:
+        result_gather = gather(array, indexer, full_pattern, agg=agg_name)
+        result_gather = xp.reshape(result_gather, (-1,))
+        result_ref = xp.full(shape=tuple(sizes[d] for d in final_pattern.split()), fill_value=default_value)
+        result_ref = xp.reshape(result_ref, (-1,))
+        for d in range(sizes["d"]):
+            flat_index_array = to_flat_index(array_pattern, {**indexer_as_dict, "d": d}, sizes=sizes)
+            flat_index_final = to_flat_index(final_pattern, {**indexer_as_dict, "d": d}, sizes=sizes)
+
+            for ia, ir in zip2(flat_index_array, flat_index_final):
+                result_ref = result_ref.at[ir].set(agg_func(float(array_flat_float[ia]), float(result_ref[ir])))
+        assert xp.all(xp.astype(result_ref, xp.int64) == result_gather)
+
+    # checking mean aggregation on constant tensor
+    result_mean_const = gather(xp.full(array.shape, fill_value=3.0), indexer, full_pattern, agg="mean")
+    assert xp.all(result_mean_const == 3.0)
+
+    # testing that ratio is constant, as number of elements averaged is the same for every result entry
+    values = xp.astype(array**2, xp.float64) + 1.0
+    result_mean = gather(values, indexer, full_pattern, agg="mean")
+    result__sum = gather(values, indexer, full_pattern, agg="sum")
+    ratio = result_mean / result__sum
+    assert xp.min(ratio) * 0.99 < xp.max(ratio) < xp.min(ratio) * 1.01
+
+
+def test_gather_under_jit():
+    """jit-wrap gather and confirm output equals the eager call."""
+    sizes = {"a": 2, "b": 3, "c": 5, "d": 7, "i1": 3, "i2": 5, "r": 3}
+    final_pattern = "b c d"
+    array_pattern = "b i1 i2 d r"
+    index_pattern = "[i1, i2] c b a r"
+    full_pattern = f"{array_pattern}, {index_pattern} -> {final_pattern}"
+
+    array = _generate_array_jax(array_pattern=array_pattern, sizes=sizes)
+    indexer = _generate_indexer_jax(index_pattern, sizes=sizes)
+
+    eager = gather(array, indexer, full_pattern, agg="sum")
+    jitted = jax.jit(lambda a, i: gather(a, i, full_pattern, agg="sum"))(array, indexer)
+    assert jnp.all(eager == jitted)
+
+
+def test_gather_grad():
+    """Gradient flows through gather (sum-reduction)."""
+    sizes = {"a": 2, "b": 3, "c": 5, "d": 7, "i1": 3, "i2": 5, "r": 3}
+    final_pattern = "b c d"
+    array_pattern = "b i1 i2 d r"
+    index_pattern = "[i1, i2] c b a r"
+    full_pattern = f"{array_pattern}, {index_pattern} -> {final_pattern}"
+
+    array = _generate_array_jax(array_pattern=array_pattern, sizes=sizes).astype(jnp.float32)
+    indexer = _generate_indexer_jax(index_pattern, sizes=sizes)
+
+    def loss(a):
+        return jnp.sum(gather(a, indexer, full_pattern, agg="sum"))
+
+    grad = jax.grad(loss)(array)
+    assert grad.shape == array.shape
+    assert jnp.all(jnp.isfinite(grad))
+    # at least some entries are non-zero (gather actually touches the array)
+    assert jnp.any(grad != 0)
+
+
+class TestJaxXP(unittest.TestCase):
+    """Basic tests for the _JaxXP namespace shim."""
+
+    def setUp(self):
+        self.xp = _JaxIXP().xp
+        np.random.seed(42)
+        self._key = jax.random.PRNGKey(42)
+
+    def _to_numpy(self, arr):
+        return np.asarray(arr)
+
+    def assertArrayEqual(self, jax_result, numpy_result):
+        if isinstance(jax_result, jax.Array):
+            jax_result = self._to_numpy(jax_result)
+        np.testing.assert_array_almost_equal(jax_result, numpy_result)
+
+    def _randn(self, *shape):
+        return jax.random.normal(self._key, shape)
+
+    def test_reshape(self):
+        x = self._randn(2, 3, 4)
+        x_np = self._to_numpy(x)
+
+        shapes = [(24,), (6, 4), (2, 3, 4), (2, -1)]
+        for shape in shapes:
+            self.assertArrayEqual(self.xp.reshape(x, shape), np.reshape(x_np, shape))
+
+    def test_full(self):
+        shapes = [(2, 3), (4,), (2, 3, 4)]
+        values = [0.0, 1.0, -1.0, np.inf]
+        dtypes = [jnp.float32, jnp.int64]
+
+        for shape in shapes:
+            for value in values:
+                for dtype in dtypes:
+                    if value is np.inf and dtype is jnp.int64:
+                        continue
+                    jax_result = self.xp.full(shape, value, dtype)
+                    numpy_result = np.full(shape, value, dtype=jax_to_numpy_dtype(dtype))
+                    self.assertArrayEqual(jax_result, numpy_result)
+
+    def test_permute(self):
+        x = self._randn(2, 3, 4)
+        x_np = self._to_numpy(x)
+
+        for perm in [(0, 2, 1), (2, 1, 0), (1, 0, 2)]:
+            self.assertArrayEqual(self.xp.permute(x, perm), np.transpose(x_np, perm))
+
+    def test_arange(self):
+        for length in [0, 1, 10, 100]:
+            self.assertArrayEqual(self.xp.arange(length), np.arange(length))
+
+    def test_all(self):
+        cases = [
+            jnp.asarray([True, True, True]),
+            jnp.asarray([True, False, True]),
+            jnp.asarray([[True, True], [True, True]]),
+            jnp.asarray([[True, False], [True, True]]),
+        ]
+        for x in cases:
+            self.assertEqual(bool(self.xp.all(x)), bool(np.all(self._to_numpy(x))))
+
+    def test_broadcast_to(self):
+        x = self._randn(3, 1)
+        x_np = self._to_numpy(x)
+
+        for shape in [(3, 4), (3, 5), (2, 3, 4)]:
+            try:
+                jax_result = self.xp.broadcast_to(x, shape)
+                numpy_result = np.broadcast_to(x_np, shape)
+                self.assertArrayEqual(jax_result, numpy_result)
+            except (TypeError, ValueError):
+                with self.assertRaises(ValueError):
+                    np.broadcast_to(x_np, shape)
+
+    def test_stack(self):
+        arrays = [self._randn(2, 3) for _ in range(4)]
+        arrays_np = [self._to_numpy(arr) for arr in arrays]
+        for axis in range(3):
+            self.assertArrayEqual(self.xp.stack(arrays, axis=axis), np.stack(arrays_np, axis=axis))
+
+    def test_argmax_argmin(self):
+        x = self._randn(3, 4, 5)
+        x_np = self._to_numpy(x)
+        for axis in [None, 0, 1, 2]:
+            self.assertArrayEqual(self.xp.argmax(x, axis=axis), np.argmax(x_np, axis=axis))
+            self.assertArrayEqual(self.xp.argmin(x, axis=axis), np.argmin(x_np, axis=axis))
+
+    def test_argsort(self):
+        x = self._randn(3, 4, 5)
+        x_np = self._to_numpy(x)
+        for axis in [None, 0, 1, 2]:
+            self.assertArrayEqual(self.xp.argsort(x, axis=axis), np.argsort(x_np, axis=axis))
+
+    def test_sort(self):
+        x = self._randn(3, 4, 5)
+        x_np = self._to_numpy(x)
+        for axis in [-1, 0, 1, 2]:
+            self.assertArrayEqual(self.xp.sort(x, axis=axis), np.sort(x_np, axis=axis))
+
+    def test_sum_mean(self):
+        x = self._randn(3, 4, 5)
+        x_np = self._to_numpy(x)
+        for axis in [None, 0, 1, 2]:
+            self.assertArrayEqual(self.xp.sum(x, axis=axis), np.sum(x_np, axis=axis))
+            self.assertArrayEqual(self.xp.mean(x, axis=axis), np.mean(x_np, axis=axis))
+
+    def test_max_min(self):
+        x = self._randn(3, 4, 5)
+        x_np = self._to_numpy(x)
+        for axis in [None, 0, 1, 2]:
+            self.assertArrayEqual(self.xp.max(x, axis=axis), np.max(x_np, axis=axis))
+            self.assertArrayEqual(self.xp.min(x, axis=axis), np.min(x_np, axis=axis))
+        for axes in [(0, 1), (1, 2), (0, 2)]:
+            self.assertArrayEqual(self.xp.max(x, axis=axes), np.max(x_np, axis=axes))
+            self.assertArrayEqual(self.xp.min(x, axis=axes), np.min(x_np, axis=axes))
+
+
+def jax_to_numpy_dtype(jax_dtype):
+    if jax_dtype == jnp.float32:
+        return np.float32
+    if jax_dtype == jnp.float64:
+        return np.float64
+    if jax_dtype == jnp.int64:
+        return np.int64
+    if jax_dtype == jnp.int32:
+        return np.int32
+    raise ValueError(f"Unsupported dtype: {jax_dtype}")
