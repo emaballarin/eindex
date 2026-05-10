@@ -22,6 +22,8 @@ from eindex.jax import argmax
 from eindex.jax import argmin
 from eindex.jax import argsort
 from eindex.jax import gather
+from eindex.jax import gather_scatter
+from eindex.jax import scatter
 
 T = TypeVar("T")
 
@@ -350,6 +352,154 @@ def test_gather_grad():
     assert jnp.all(jnp.isfinite(grad))
     # at least some entries are non-zero (gather actually touches the array)
     assert jnp.any(grad != 0)
+
+
+def _list_aggname_aggfunc_default_value():
+    return [
+        ("sum", lambda a, b: a + b, 0.0),
+        ("min", min, float("inf")),
+        ("max", max, float("-inf")),
+    ]
+
+
+def test_scatter():
+    ixp = _JaxIXP()
+    xp = ixp.xp
+
+    sizes = {"b": 3, "c": 5, "d": 7, "e": 2, "f": 3, "g": 4, "h": 5}
+    array_pattern = "b c d"
+    index_pattern = "[f, h] c b e"
+    final_pattern = "b f h d e"
+    full_pattern = f"{array_pattern}, {index_pattern} -> {final_pattern}"
+
+    array = _generate_array_jax(array_pattern=array_pattern, sizes=sizes)
+    indexer = _generate_indexer_jax(index_pattern, sizes=sizes)
+    result = scatter(array, indexer, full_pattern, f=sizes["f"], h=sizes["h"])
+    indexer_as_dict = enumerate_indexer(ixp, index_pattern, indexer=indexer, sizes=sizes)
+
+    array_flat = flatten(xp, array)
+    result_flat = flatten(xp, result)
+    for d in range(sizes["d"]):
+        flat_index_array = to_flat_index(array_pattern, {**indexer_as_dict, "d": d}, sizes=sizes)
+        flat_index_final = to_flat_index(final_pattern, {**indexer_as_dict, "d": d}, sizes=sizes)
+        for ia, ir in zip2(flat_index_array, flat_index_final):
+            result_flat = result_flat.at[ir].add(-array_flat[ia])
+    assert xp.max(jnp.abs(result_flat)) == 0
+
+    # aggregation comparison runs in float to dodge int <-> ±inf cast asymmetry
+    array_float = xp.astype(array, jnp.float32)
+    array_flat_float = flatten(xp, array_float)
+    for agg_name, agg_func, default_value in _list_aggname_aggfunc_default_value():
+        result_scatter = scatter(array_float, indexer, full_pattern, agg=agg_name, f=sizes["f"], h=sizes["h"])
+        result_scatter = xp.reshape(result_scatter, (-1,))
+        result_ref = jnp.full(
+            tuple(sizes[d] for d in final_pattern.split()), fill_value=default_value, dtype=jnp.float32
+        ).reshape(-1)
+        for d in range(sizes["d"]):
+            flat_index_array = to_flat_index(array_pattern, {**indexer_as_dict, "d": d}, sizes=sizes)
+            flat_index_final = to_flat_index(final_pattern, {**indexer_as_dict, "d": d}, sizes=sizes)
+            for ia, ir in zip2(flat_index_array, flat_index_final):
+                v = float(agg_func(float(array_flat_float[ia]), float(result_ref[ir])))
+                result_ref = result_ref.at[ir].set(v)
+        assert jnp.allclose(result_ref, result_scatter, equal_nan=True)
+
+    # mean on a constant tensor — reached buckets = 3, unreached = NaN.
+    arr_const = array_float * 0 + 3.0
+    arr_ones = array_float * 0 + 1.0
+    result_mean = scatter(arr_const, indexer, full_pattern, agg="mean", f=sizes["f"], h=sizes["h"])
+    result_sum = scatter(arr_ones, indexer, full_pattern, agg="sum", f=sizes["f"], h=sizes["h"])
+    assert jnp.allclose(result_mean[result_sum > 0], jnp.asarray(3.0, dtype=result_mean.dtype))
+    assert jnp.all(jnp.isnan(result_mean[result_sum == 0]))
+
+
+def test_gather_scatter_jax():
+    ixp = _JaxIXP()
+    xp = ixp.xp
+
+    sizes = {"b": 3, "c": 5, "r": 3, "f": 4, "i1": 2, "i2": 3, "i3": 5}
+    final_pattern = "b c i1 i3 f"
+    array_pattern = "b c i1 i2"
+    index_pattern = "[i1, i2, i3] b f r"
+    full_pattern = f"{array_pattern}, {index_pattern} -> {final_pattern}"
+
+    array = _generate_array_jax(array_pattern=array_pattern, sizes=sizes)
+    indexer = _generate_indexer_jax(index_pattern, sizes=sizes)
+    result = gather_scatter(array, indexer, full_pattern, i3=sizes["i3"])
+    indexer_as_dict = enumerate_indexer(ixp, index_pattern, indexer=indexer, sizes=sizes)
+
+    array_flat = flatten(xp, array)
+    result_flat = flatten(xp, result)
+    for c in range(sizes["c"]):
+        flat_index_array = to_flat_index(array_pattern, {**indexer_as_dict, "c": c}, sizes=sizes)
+        flat_index_final = to_flat_index(final_pattern, {**indexer_as_dict, "c": c}, sizes=sizes)
+        for ia, ir in zip2(flat_index_array, flat_index_final):
+            result_flat = result_flat.at[ir].add(-array_flat[ia])
+    assert xp.max(jnp.abs(result_flat)) == 0
+
+    array_float = xp.astype(array, jnp.float32)
+    array_flat_float = flatten(xp, array_float)
+    for agg_name, agg_func, default_value in _list_aggname_aggfunc_default_value():
+        result_gst = gather_scatter(array_float, indexer, full_pattern, agg=agg_name, i3=sizes["i3"])
+        result_gst = xp.reshape(result_gst, (-1,))
+        result_ref = jnp.full(
+            tuple(sizes[d] for d in final_pattern.split()), fill_value=default_value, dtype=jnp.float32
+        ).reshape(-1)
+        for c in range(sizes["c"]):
+            flat_index_array = to_flat_index(array_pattern, {**indexer_as_dict, "c": c}, sizes=sizes)
+            flat_index_final = to_flat_index(final_pattern, {**indexer_as_dict, "c": c}, sizes=sizes)
+            for ia, ir in zip2(flat_index_array, flat_index_final):
+                v = float(agg_func(float(array_flat_float[ia]), float(result_ref[ir])))
+                result_ref = result_ref.at[ir].set(v)
+        assert jnp.allclose(result_ref, result_gst, equal_nan=True)
+
+    arr_const = array_float * 0 + 3.0
+    arr_ones = array_float * 0 + 1.0
+    result_mean = gather_scatter(arr_const, indexer, full_pattern, agg="mean", i3=sizes["i3"])
+    result_sum = gather_scatter(arr_ones, indexer, full_pattern, agg="sum", i3=sizes["i3"])
+    assert jnp.allclose(result_mean[result_sum > 0], jnp.asarray(3.0, dtype=result_mean.dtype))
+    assert jnp.all(jnp.isnan(result_mean[result_sum == 0]))
+
+
+def test_scatter_under_jit():
+    sizes = {"b": 3, "c": 5, "d": 7, "e": 2, "f": 3, "h": 5}
+    array_pattern = "b c d"
+    index_pattern = "[f, h] c b e"
+    final_pattern = "b f h d e"
+    full_pattern = f"{array_pattern}, {index_pattern} -> {final_pattern}"
+
+    array = _generate_array_jax(array_pattern=array_pattern, sizes=sizes).astype(jnp.float32)
+    indexer = _generate_indexer_jax(index_pattern, sizes=sizes)
+
+    eager = scatter(array, indexer, full_pattern, agg="sum", f=sizes["f"], h=sizes["h"])
+    jitted = jax.jit(lambda a, i: scatter(a, i, full_pattern, agg="sum", f=sizes["f"], h=sizes["h"]))(array, indexer)
+    assert jnp.allclose(eager, jitted)
+
+
+def test_scatter_grad():
+    """jax.grad through scatter (sum and mean)."""
+    sizes = {"b": 2, "c": 3, "d": 4, "f": 3, "h": 5, "e": 2}
+    array_pattern = "b c d"
+    index_pattern = "[f, h] c b e"
+    final_pattern = "b f h d e"
+    full_pattern = f"{array_pattern}, {index_pattern} -> {final_pattern}"
+
+    array = _generate_array_jax(array_pattern=array_pattern, sizes=sizes).astype(jnp.float32)
+    indexer = _generate_indexer_jax(index_pattern, sizes=sizes)
+
+    def loss_sum(a):
+        return jnp.sum(scatter(a, indexer, full_pattern, agg="sum", f=sizes["f"], h=sizes["h"]))
+
+    g_sum = jax.grad(loss_sum)(array)
+    assert g_sum.shape == array.shape
+    assert jnp.all(jnp.isfinite(g_sum))
+    assert jnp.all(g_sum > 0)
+
+    def loss_mean(a):
+        return jnp.nansum(scatter(a, indexer, full_pattern, agg="mean", f=sizes["f"], h=sizes["h"]))
+
+    g_mean = jax.grad(loss_mean)(array)
+    assert g_mean.shape == array.shape
+    assert jnp.all(jnp.isfinite(g_mean))
 
 
 class TestJaxXP(unittest.TestCase):
